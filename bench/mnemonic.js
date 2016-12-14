@@ -1,9 +1,9 @@
 'use strict';
 
-var bn = require('bn.js');
+var BN = require('bn.js');
 var bcoin = require('../').set('main');
 var constants = bcoin.constants;
-var utils = bcoin.utils;
+var util = bcoin.util;
 var assert = require('assert');
 var bench = require('./bench');
 var Mnemonic = bcoin.hd.Mnemonic;

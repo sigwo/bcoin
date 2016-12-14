@@ -12,9 +12,10 @@
   "preferGlobal": true,
   "scripts": {
     "test": "mocha --reporter spec test/*-test.js",
-    "browserify": "browserify --im -o browser/bcoin.js lib/bcoin.js",
-    "uglify": "uglifyjs -m -o browser/bcoin.min.js browser/bcoin.js",
-    "clean": "rm browser/bcoin.js browser/bcoin.min.js"
+    "browserify": "browserify --im -o browser/bcoin.js lib/bcoin.js && browserify --im -o browser/bcoin-master.js lib/workers/master.js",
+    "uglify": "uglifyjs -m -o browser/bcoin.min.js browser/bcoin.js && uglifyjs -m -o browser/bcoin-master.min.js browser/bcoin-master.js",
+    "clean": "rm browser/bcoin.js browser/bcoin.min.js browser/bcoin-master.js browser/bcoin-master.min.js",
+    "lint": "jshint lib/ || exit 0"
   },
   "repository": "git://github.com/bcoin-org/bcoin.git",
   "keywords": [
@@ -33,20 +34,25 @@
   },
   "homepage": "https://github.com/bcoin-org/bcoin",
   "engines": {
-    "node": ">= 0.10.0"
+    "node": ">= 0.11.0"
   },
   "dependencies": {
     "bn.js": "4.11.6",
-    "elliptic": "6.3.1"
+    "elliptic": "6.3.2"
   },
   "optionalDependencies": {
-    "bcoin-native": "0.0.5",
-    "leveldown": "git://github.com/Level/leveldown.git#leveldb-1.19",
+    "bcoin-native": "0.0.12",
+    "leveldown": "1.5.0",
     "secp256k1": "3.2.0",
     "socket.io": "1.4.8",
     "socket.io-client": "1.4.8"
   },
   "devDependencies": {
+    "babelify": "7.3.0",
+    "babel-preset-es2015": "6.14.0",
+    "babel-polyfill": "6.13.0",
+    "babel-plugin-transform-runtime": "6.12.0",
+    "babel-plugin-transform-regenerator": "6.14.0",
     "browserify": "13.1.0",
     "hash.js": "1.0.3",
     "jsdoc": "3.4.0",
@@ -59,9 +65,21 @@
     "./lib/http/client": "./browser/empty.js",
     "./lib/http/request": "./browser/empty.js",
     "./lib/http/rpcclient": "./browser/empty.js",
-    "./lib/http/rpc": "./browser/empty.js",
     "./lib/http/server": "./browser/empty.js",
     "./lib/http/wallet": "./browser/empty.js",
+    "./lib/utils/lazy": "./browser/empty.js",
+    "./lib/utils/native": "./browser/empty.js",
+    "./lib/utils/nfkd": "./lib/utils/nfkd-browser.js",
+    "./lib/utils/nexttick": "./lib/utils/nexttick-browser.js",
+    "./lib/utils/lazy": "./lib/utils/lazy-browser.js",
+    "./lib/crypto/backend": "./lib/crypto/backend-browser.js",
+    "./lib/crypto/ec": "./lib/crypto/ec-elliptic.js",
+    "./lib/crypto/pk": "./lib/crypto/pk-browser.js",
+    "./lib/db/backends": "./lib/db/backends-browser.js",
+    "./lib/hd/wordlist": "./lib/hd/wordlist-browser.js",
+    "./lib/net/tcp": "./lib/net/tcp-browser.js",
+    "./lib/blockchain/layout": "./lib/blockchain/layout-browser.js",
+    "./lib/wallet/layout": "./lib/wallet/layout-browser.js",
     "fs": "./browser/empty.js",
     "crypto": "./browser/empty.js",
     "child_process": "./browser/empty.js",
@@ -69,5 +87,8 @@
     "net": "./browser/empty.js",
     "bcoin-native": "./browser/empty.js",
     "secp256k1": "./browser/empty.js"
+  },
+  "browserify": {
+    "transform": ["./browser/transform.js", "babelify"]
   }
 }

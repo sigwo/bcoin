@@ -1,8 +1,9 @@
 'use strict';
 
-var bn = require('bn.js');
+var BN = require('bn.js');
 var bcoin = require('../').set('main');
-var utils = bcoin.utils;
+var util = bcoin.util;
+var base58 = require('../lib/utils/base58');
 var crypto = require('../lib/crypto/crypto');
 var assert = require('assert');
 
@@ -137,6 +138,14 @@ describe('HD', function() {
     assert.equal(child6.xpubkey, child6_pub);
   });
 
+  it('should derive correctly when private key has leading zeros', function() {
+    var key = 'xprv9s21ZrQH143K3ckY9DgU79uMTJkQRLdbCCVDh81SnxTgPzLLGax6uHeBULTtaEtcAvKjXfT7ZWtHzKjTpujMkUd9dDb8msDeAfnJxrgAYhr';
+    var hdkey = bcoin.hd.PrivateKey.fromBase58(key);
+    assert.equal(hdkey.privateKey.toString('hex'), '00000055378cf5fafb56c711c674143f9b0ee82ab0ba2924f19b64f5ae7cdbfd');
+    var child = hdkey.derivePath('m/44\'/0\'/0\'/0/0\'');
+    assert.equal(child.privateKey.toString('hex'), '3348069561d2a0fb925e74bf198762acc47dce7db27372257d2d959a9e6f8aeb');
+  });
+
   it('should deserialize master private key', function() {
     bcoin.hd.PrivateKey.fromBase58(master.xprivkey);
   });
@@ -151,7 +160,7 @@ describe('HD', function() {
   });
 
   function ub58(data) {
-    return utils.fromBase58(data).toString('hex');
+    return base58.decode(data).toString('hex');
   }
 
   function equal(a, b) {

@@ -1,15 +1,15 @@
 'use strict';
 
-var bn = require('bn.js');
+var BN = require('bn.js');
 var bcoin = require('../').set('main');
-var utils = bcoin.utils;
+var util = bcoin.util;
 var crypto = require('../lib/crypto/crypto');
 var constants = bcoin.constants;
 var network = bcoin.networks;
 var assert = require('assert');
 var tests = require('./data/bip70.json');
-var bip70 = require('../lib/bip70/bip70');
-var x509 = require('../lib/bip70/x509');
+var bip70 = require('../lib/bip70');
+var x509 = bip70.x509;
 
 tests.valid = new Buffer(tests.valid, 'hex');
 tests.invalid = new Buffer(tests.invalid, 'hex');
@@ -155,8 +155,8 @@ describe('BIP70', function() {
         network: 'testnet',
         paymentUrl: 'http://bcoin.io/payme',
         memo: 'foobar',
-        time: utils.now(),
-        expires: utils.now() + 3600,
+        time: util.now(),
+        expires: util.now() + 3600,
         outputs: [
           { value: 10000, address: bcoin.address() },
           { value: 50000, address: bcoin.address() }
@@ -176,7 +176,7 @@ describe('BIP70', function() {
     assert.equal(request.version, 25);
     assert.equal(request.paymentDetails.paymentUrl, 'http://bcoin.io/payme');
     assert.equal(request.paymentDetails.network, 'testnet');
-    assert(request.paymentDetails.time <= utils.now());
+    assert(request.paymentDetails.time <= util.now());
     assert.equal(request.paymentDetails.expires,
       request.paymentDetails.time + 3600);
     assert.equal(request.paymentDetails.outputs.length, 2);

@@ -1,9 +1,9 @@
 'use strict';
 
-var bn = require('bn.js');
+var BN = require('bn.js');
 var bcoin = require('../').set('main');
 var assert = require('assert');
-var utils = bcoin.utils;
+var util = bcoin.util;
 var crypto = require('../lib/crypto/crypto');
 var constants = bcoin.constants;
 var opcodes = bcoin.constants.opcodes;
@@ -14,7 +14,7 @@ var fs = require('fs');
 var tx1 = parseTX('data/tx1.hex');
 var tx2 = parseTX('data/tx2.hex');
 var tx3 = parseTX('data/tx3.hex');
-var tx4 = parseExtended('data/tx4.hex');
+var tx4 = parseTX('data/tx4.hex');
 var wtx = parseTX('data/wtx.hex');
 var coolest = parseTX('data/coolest-tx-ever-sent.hex');
 
@@ -26,11 +26,6 @@ function parseTX(file) {
     tx.fillCoins(coin);
   }
   return tx;
-}
-
-function parseExtended(file) {
-  file = fs.readFileSync(__dirname + '/' + file, 'utf8').trim();
-  return bcoin.tx.fromExtended(file, true, 'hex');
 }
 
 function clearCache(tx, nocache) {
@@ -52,6 +47,8 @@ function clearCache(tx, nocache) {
   tx._witnessSize = -1;
   tx._lastWitnessSize = 0;
   tx._hash = null;
+  tx._hhash = null;
+  tx._whash = null;
   tx._inputValue = -1;
   tx._outputValue = -1;
   tx._hashPrevouts = null;
@@ -193,7 +190,7 @@ describe('TX', function() {
           version: 1,
           height: -1,
           coinbase: false,
-          hash: utils.revHex(hash),
+          hash: util.revHex(hash),
           index: index,
           script: script,
           value: value != null ? parseInt(value, 10) : 0
@@ -205,7 +202,7 @@ describe('TX', function() {
         tx: tx,
         flags: flags,
         comments: tx.hasCoins()
-          ? utils.inspectify(tx.inputs[0].coin.script, false)
+          ? util.inspectify(tx.inputs[0].coin.script, false)
           : 'coinbase',
         data: data
       };
@@ -290,7 +287,7 @@ describe('TX', function() {
       clearCache(script, nocache);
       var index = data[2];
       var type = data[3];
-      var expected = utils.revHex(data[4]);
+      var expected = util.revHex(data[4]);
       var hexType = type & 3;
       if (type & 0x80)
         hexType |= 0x80;
@@ -466,7 +463,7 @@ describe('TX', function() {
   });
 
   it('should fail on >51 bit fees from multiple txs', function() {
-    var data = utils.merge({}, bcoin.network.get().genesis, { height: 0 });
+    var data = util.merge({}, bcoin.network.get().genesis, { height: 0 });
     var block = new bcoin.block(data);
     for (var i = 0; i < 3; i++) {
       var tx = bcoin.tx({
@@ -499,14 +496,14 @@ describe('TX', function() {
       }],
       locktime: 0
     });
-    tx.outputs[0].value = new bn('00ffffffffffffff', 'hex');
+    tx.outputs[0].value = new BN('00ffffffffffffff', 'hex');
     assert(tx.outputs[0].value.bitLength() === 56);
     var raw = tx.toRaw()
     assert.throws(function() {
       bcoin.tx.fromRaw(raw);
     });
     delete tx._raw;
-    tx.outputs[0].value = new bn('00ffffffffffffff', 'hex').ineg();
+    tx.outputs[0].value = new BN('00ffffffffffffff', 'hex').ineg();
     assert(tx.outputs[0].value.bitLength() === 56);
     var raw = tx.toRaw()
     assert.throws(function() {
@@ -518,7 +515,7 @@ describe('TX', function() {
     var tx = bcoin.tx({
       version: 1,
       flag: 1,
-      inputs: [createInput(utils.MAX_SAFE_INTEGER)],
+      inputs: [createInput(util.MAX_SAFE_INTEGER)],
       outputs: [{
         script: [],
         value: constants.MAX_MONEY
@@ -536,7 +533,7 @@ describe('TX', function() {
       inputs: [createInput(constants.MAX_MONEY)],
       outputs: [{
         script: [],
-        value: utils.MAX_SAFE_INTEGER
+        value: util.MAX_SAFE_INTEGER
       }],
       locktime: 0
     });
@@ -548,7 +545,7 @@ describe('TX', function() {
     var tx = bcoin.tx({
       version: 1,
       flag: 1,
-      inputs: [createInput(utils.MAX_SAFE_INTEGER)],
+      inputs: [createInput(util.MAX_SAFE_INTEGER)],
       outputs: [{
         script: [],
         value: 0
@@ -559,7 +556,7 @@ describe('TX', function() {
     assert.ok(!tx.checkInputs(0));
   });
 
-  [utils.MAX_SAFE_ADDITION, utils.MAX_SAFE_INTEGER].forEach(function(MAX) {
+  [util.MAX_SAFE_ADDITION, util.MAX_SAFE_INTEGER].forEach(function(MAX) {
     it('should fail on >53 bit values from multiple', function() {
       var tx = bcoin.tx({
         version: 1,
@@ -624,7 +621,7 @@ describe('TX', function() {
     });
 
     it('should fail on >53 bit fees from multiple txs', function() {
-      var data = utils.merge({}, bcoin.network.get().genesis, { height: 0 });
+      var data = util.merge({}, bcoin.network.get().genesis, { height: 0 });
       var block = new bcoin.block(data);
       for (var i = 0; i < 3; i++) {
         var tx = bcoin.tx({

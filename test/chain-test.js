@@ -1,251 +1,439 @@
 'use strict';
 
-var bn = require('bn.js');
+var BN = require('bn.js');
 var bcoin = require('../').set('regtest');
 var constants = bcoin.constants;
-var utils = bcoin.utils;
+var util = bcoin.util;
 var crypto = require('../lib/crypto/crypto');
 var assert = require('assert');
 var opcodes = constants.opcodes;
-
-constants.tx.COINBASE_MATURITY = 0;
+var co = require('../lib/utils/co');
+var cob = co.cob;
+// var Client = require('../lib/wallet/client');
 
 describe('Chain', function() {
   var chain, wallet, node, miner, walletdb;
-  var competingTip, oldTip, tip1, tip2, cb1, cb2;
+  var tip1, tip2, cb1, cb2, mineBlock;
 
   this.timeout(5000);
 
-  node = new bcoin.fullnode({ db: 'memory' });
+  node = new bcoin.fullnode({ db: 'memory', apiKey: 'foo' });
+  // node.walletdb.client = new Client({ apiKey: 'foo', network: 'regtest' });
   chain = node.chain;
   walletdb = node.walletdb;
+  walletdb.options.resolution = false;
   miner = node.miner;
   node.on('error', function() {});
 
-  function mineBlock(tip, tx, callback) {
-    miner.createBlock(tip, function(err, attempt) {
-      assert.ifError(err);
-      if (tx) {
-        var redeemer = bcoin.mtx();
-        redeemer.addOutput({
-          address: wallet.receiveAddress.getAddress(),
-          value: utils.satoshi('25.0')
-        });
-        redeemer.addOutput({
-          address: wallet.changeAddress.getAddress(),
-          value: utils.satoshi('5.0')
-        });
-        redeemer.addInput(tx, 0);
-        redeemer.setLocktime(chain.height);
-        return wallet.sign(redeemer, function(err) {
-          assert.ifError(err);
-          attempt.addTX(redeemer.toTX());
-          callback(null, attempt.mineSync());
-        });
-      }
-      callback(null, attempt.mineSync());
-    });
-  }
+  mineBlock = co(function* mineBlock(tip, tx) {
+    var attempt = yield miner.createBlock(tip);
+    var redeemer;
 
-  function deleteCoins(tx) {
-    if (tx.txs) {
-      deleteCoins(tx.txs);
-      return;
-    }
-    if (Array.isArray(tx)) {
-      tx.forEach(deleteCoins);
-      return;
-    }
-    tx.inputs.forEach(function(input) {
-      input.coin = null;
-    });
-  }
+    if (!tx)
+      return yield attempt.mineAsync();
 
-  it('should open chain and miner', function(cb) {
+    redeemer = bcoin.mtx();
+
+    redeemer.addOutput({
+      address: wallet.receive.getAddress(),
+      value: 25 * 1e8
+    });
+
+    redeemer.addOutput({
+      address: wallet.change.getAddress(),
+      value: 5 * 1e8
+    });
+
+    redeemer.addInput(tx, 0);
+
+    redeemer.setLocktime(chain.height);
+
+    yield wallet.sign(redeemer);
+
+    attempt.addTX(redeemer.toTX());
+
+    return yield attempt.mineAsync();
+  });
+
+  it('should open chain and miner', cob(function* () {
     miner.mempool = null;
-    node.open(cb);
-  });
+    constants.tx.COINBASE_MATURITY = 0;
+    yield node.open();
+  }));
 
-  it('should open walletdb', function(cb) {
-    walletdb.create({}, function(err, w) {
-      assert.ifError(err);
-      wallet = w;
-      miner.address = wallet.getAddress();
-      cb();
+  it('should open walletdb', cob(function* () {
+    wallet = yield walletdb.create();
+    miner.addresses.length = 0;
+    miner.addAddress(wallet.getAddress());
+  }));
+
+  it('should mine a block', cob(function* () {
+    var block = yield miner.mineBlock();
+    assert(block);
+    yield chain.add(block);
+  }));
+
+  it('should mine competing chains', cob(function* () {
+    var i, block1, block2;
+
+    for (i = 0; i < 10; i++) {
+      block1 = yield mineBlock(tip1, cb1);
+      cb1 = block1.txs[0];
+
+      block2 = yield mineBlock(tip2, cb2);
+      cb2 = block2.txs[0];
+
+      yield chain.add(block1);
+
+      yield chain.add(block2);
+
+      assert(chain.tip.hash === block1.hash('hex'));
+
+      tip1 = yield chain.db.getEntry(block1.hash('hex'));
+      tip2 = yield chain.db.getEntry(block2.hash('hex'));
+
+      assert(tip1);
+      assert(tip2);
+
+      assert(!(yield tip2.isMainChain()));
+    }
+  }));
+
+  it('should have correct balance', cob(function* () {
+    var balance;
+
+    yield co.timeout(100);
+
+    balance = yield wallet.getBalance();
+    assert.equal(balance.unconfirmed, 550 * 1e8);
+    assert.equal(balance.confirmed, 550 * 1e8);
+  }));
+
+  it('should handle a reorg', cob(function* () {
+    var entry, block, forked;
+
+    assert.equal(walletdb.state.height, chain.height);
+    assert.equal(chain.height, 11);
+
+    entry = yield chain.db.getEntry(tip2.hash);
+    assert(entry);
+    assert(chain.height === entry.height);
+
+    block = yield miner.mineBlock(entry);
+    assert(block);
+
+    forked = false;
+    chain.once('reorganize', function() {
+      forked = true;
     });
-  });
 
-  it('should mine a block', function(cb) {
-    miner.mineBlock(function(err, block) {
-      assert.ifError(err);
-      assert(block);
-      cb();
-    });
-  });
+    yield chain.add(block);
 
-  it('should mine competing chains', function(cb) {
-    utils.forRangeSerial(0, 10, function(i, next) {
-      mineBlock(tip1, cb1, function(err, block1) {
-        assert.ifError(err);
-        cb1 = block1.txs[0];
-        mineBlock(tip2, cb2, function(err, block2) {
-          assert.ifError(err);
-          cb2 = block2.txs[0];
-          deleteCoins(block1);
-          chain.add(block1, function(err) {
-            assert.ifError(err);
-            deleteCoins(block2);
-            chain.add(block2, function(err) {
-              assert.ifError(err);
-              assert(chain.tip.hash === block1.hash('hex'));
-              competingTip = block2.hash('hex');
-              chain.db.get(block1.hash('hex'), function(err, entry1) {
-                assert.ifError(err);
-                chain.db.get(block2.hash('hex'), function(err, entry2) {
-                  assert.ifError(err);
-                  assert(entry1);
-                  assert(entry2);
-                  tip1 = entry1;
-                  tip2 = entry2;
-                  chain.db.isMainChain(block2.hash('hex'), function(err, result) {
-                    assert.ifError(err);
-                    assert(!result);
-                    next();
-                  });
-                });
-              });
-            });
-          });
-        });
-      });
-    }, cb);
-  });
+    assert(forked);
+    assert(chain.tip.hash === block.hash('hex'));
+    assert(chain.tip.chainwork.cmp(tip1.chainwork) > 0);
+  }));
 
-  it('should handle a reorg', function(cb) {
-    assert.equal(walletdb.height, chain.height);
-    assert.equal(chain.height, 10);
-    oldTip = chain.tip;
-    chain.db.get(competingTip, function(err, entry) {
-      assert.ifError(err);
-      assert(entry);
-      assert(chain.height === entry.height);
-      miner.mineBlock(entry, function(err, block) {
-        assert.ifError(err);
-        assert(block);
-        var forked = false;
-        chain.once('reorganize', function() {
-          forked = true;
-        });
-        deleteCoins(block);
-        chain.add(block, function(err) {
-          assert.ifError(err);
-          assert(forked);
-          assert(chain.tip.hash === block.hash('hex'));
-          assert(chain.tip.chainwork.cmp(oldTip.chainwork) > 0);
-          cb();
-        });
-      });
-    });
-  });
+  it('should have correct balance', cob(function* () {
+    var balance;
 
-  it('should check main chain', function(cb) {
-    chain.db.isMainChain(oldTip, function(err, result) {
-      assert.ifError(err);
-      assert(!result);
-      cb();
-    });
-  });
+    yield co.timeout(100);
 
-  it('should mine a block after a reorg', function(cb) {
-    mineBlock(null, cb2, function(err, block) {
-      assert.ifError(err);
-      deleteCoins(block);
-      chain.add(block, function(err) {
-        assert.ifError(err);
-        chain.db.get(block.hash('hex'), function(err, entry) {
-          assert.ifError(err);
-          assert(entry);
-          assert(chain.tip.hash === entry.hash);
-          chain.db.isMainChain(entry.hash, function(err, result) {
-            assert.ifError(err);
-            assert(result);
-            cb();
-          });
-        });
-      });
-    });
-  });
+    balance = yield wallet.getBalance();
+    assert.equal(balance.unconfirmed, 1100 * 1e8);
+    assert.equal(balance.confirmed, 600 * 1e8);
+  }));
 
-  it('should fail to mine a block with coins on an alternate chain', function(cb) {
-    mineBlock(null, cb1, function(err, block) {
-      assert.ifError(err);
-      deleteCoins(block);
-      chain.add(block, function(err) {
-        assert(err);
-        cb();
-      });
-    });
-  });
+  it('should check main chain', cob(function* () {
+    var result = yield tip1.isMainChain();
+    assert(!result);
+  }));
 
-  it('should get coin', function(cb) {
-    mineBlock(null, null, function(err, block) {
-      assert.ifError(err);
-      chain.add(block, function(err) {
-        assert.ifError(err);
-        mineBlock(null, block.txs[0], function(err, block) {
-          assert.ifError(err);
-          chain.add(block, function(err) {
-            assert.ifError(err);
-            var tx = block.txs[1];
-            var output = bcoin.coin.fromTX(tx, 1);
-            chain.db.getCoin(tx.hash('hex'), 1, function(err, coin) {
-              assert.ifError(err);
-              assert.deepEqual(coin.toRaw(), output.toRaw());
-              cb();
-            });
-          });
-        });
-      });
-    });
-  });
+  it('should mine a block after a reorg', cob(function* () {
+    var block = yield mineBlock(null, cb2);
+    var entry, result;
 
-  it('should get balance', function(cb) {
-    setTimeout(function() {
-      wallet.getBalance(function(err, balance) {
-        assert.ifError(err);
-        assert.equal(balance.unconfirmed, 23000000000);
-        assert.equal(balance.confirmed, 97000000000);
-        assert.equal(balance.total, 120000000000);
-        assert.equal(wallet.account.receiveDepth, 8);
-        assert.equal(wallet.account.changeDepth, 7);
-        assert.equal(walletdb.height, chain.height);
-        assert.equal(walletdb.tip, chain.tip.hash);
-        wallet.getHistory(function(err, txs) {
-          assert.ifError(err);
-          assert.equal(txs.length, 44);
-          cb();
-        });
-      });
-    }, 100);
-  });
+    yield chain.add(block);
 
-  it('should rescan for transactions', function(cb) {
+    entry = yield chain.db.getEntry(block.hash('hex'));
+    assert(entry);
+    assert(chain.tip.hash === entry.hash);
+
+    result = yield entry.isMainChain();
+    assert(result);
+  }));
+
+  it('should prevent double spend on new chain', cob(function* () {
+    var block = yield mineBlock(null, cb2);
+    var tip = chain.tip;
+    var err;
+
+    try {
+      yield chain.add(block);
+    } catch (e) {
+      err = e;
+    }
+
+    assert(err);
+    assert.equal(err.reason, 'bad-txns-inputs-missingorspent');
+    assert(chain.tip === tip);
+  }));
+
+  it('should fail to mine a block with coins on an alternate chain', cob(function* () {
+    var block = yield mineBlock(null, cb1);
+    var tip = chain.tip;
+    var err;
+
+    try {
+      yield chain.add(block);
+    } catch (e) {
+      err = e;
+    }
+
+    assert(err);
+    assert.equal(err.reason, 'bad-txns-inputs-missingorspent');
+    assert(chain.tip === tip);
+  }));
+
+  it('should get coin', cob(function* () {
+    var block, tx, output, coin;
+
+    block = yield mineBlock();
+    yield chain.add(block);
+
+    block = yield mineBlock(null, block.txs[0]);
+    yield chain.add(block);
+
+    tx = block.txs[1];
+    output = bcoin.coin.fromTX(tx, 1);
+
+    coin = yield chain.db.getCoin(tx.hash('hex'), 1);
+
+    assert.deepEqual(coin.toRaw(), output.toRaw());
+  }));
+
+  it('should get balance', cob(function* () {
+    var balance, txs;
+
+    yield co.timeout(100);
+
+    balance = yield wallet.getBalance();
+    assert.equal(balance.unconfirmed, 1250 * 1e8);
+    assert.equal(balance.confirmed, 750 * 1e8);
+
+    assert(wallet.account.receiveDepth >= 7);
+    assert(wallet.account.changeDepth >= 6);
+
+    assert.equal(walletdb.state.height, chain.height);
+
+    txs = yield wallet.getHistory();
+    assert.equal(txs.length, 45);
+  }));
+
+  it('should get tips and remove chains', cob(function* () {
+    var tips = yield chain.db.getTips();
+
+    assert.notEqual(tips.indexOf(chain.tip.hash), -1);
+    assert.equal(tips.length, 2);
+
+    yield chain.db.removeChains();
+
+    tips = yield chain.db.getTips();
+
+    assert.notEqual(tips.indexOf(chain.tip.hash), -1);
+    assert.equal(tips.length, 1);
+  }));
+
+  it('should rescan for transactions', cob(function* () {
     var total = 0;
-    walletdb.getAddressHashes(function(err, hashes) {
-      assert.ifError(err);
-      chain.db.scan(null, hashes, function(block, txs, next) {
-        total += txs.length;
-        next();
-      }, function(err) {
-        assert.ifError(err);
-        assert.equal(total, 25);
-        cb();
-      });
+
+    yield chain.db.scan(0, walletdb.filter, function(block, txs) {
+      total += txs.length;
+      return Promise.resolve();
     });
+
+    assert.equal(total, 26);
+  }));
+
+  it('should activate csv', cob(function* () {
+    var deployments = chain.network.deployments;
+    var i, block, prev, state, cache;
+
+    prev = yield chain.tip.getPrevious();
+    state = yield chain.getState(prev, deployments.csv);
+    assert(state === 0);
+
+    for (i = 0; i < 417; i++) {
+      block = yield miner.mineBlock();
+      yield chain.add(block);
+      switch (chain.height) {
+        case 144:
+          prev = yield chain.tip.getPrevious();
+          state = yield chain.getState(prev, deployments.csv);
+          assert(state === 1);
+          break;
+        case 288:
+          prev = yield chain.tip.getPrevious();
+          state = yield chain.getState(prev, deployments.csv);
+          assert(state === 2);
+          break;
+        case 432:
+          prev = yield chain.tip.getPrevious();
+          state = yield chain.getState(prev, deployments.csv);
+          assert(state === 3);
+          break;
+      }
+    }
+
+    assert(chain.height === 432);
+    assert(chain.state.hasCSV());
+
+    cache = yield chain.db.getStateCache();
+    assert.deepEqual(cache, chain.db.stateCache);
+    assert.equal(chain.db.stateCache.updates.length, 0);
+    assert(yield chain.db.verifyDeployments());
+  }));
+
+  var mineCSV = co(function* mineCSV(tx) {
+    var attempt = yield miner.createBlock();
+    var redeemer;
+
+    redeemer = bcoin.mtx();
+
+    redeemer.addOutput({
+      script: [
+        bcoin.script.array(new BN(1)),
+        constants.opcodes.OP_CHECKSEQUENCEVERIFY
+      ],
+      value: 10 * 1e8
+    });
+
+    redeemer.addInput(tx, 0);
+
+    redeemer.setLocktime(chain.height);
+
+    yield wallet.sign(redeemer);
+
+    attempt.addTX(redeemer.toTX());
+
+    return yield attempt.mineAsync();
   });
 
-  it('should cleanup', function(cb) {
+  it('should test csv', cob(function* () {
+    var tx = (yield chain.db.getBlock(chain.height)).txs[0];
+    var block = yield mineCSV(tx);
+    var csv, attempt, redeemer;
+
+    yield chain.add(block);
+
+    csv = block.txs[1];
+
+    redeemer = bcoin.mtx();
+
+    redeemer.addOutput({
+      script: [
+        bcoin.script.array(new BN(2)),
+        constants.opcodes.OP_CHECKSEQUENCEVERIFY
+      ],
+      value: 10 * 1e8
+    });
+
+    redeemer.addInput(csv, 0);
+    redeemer.setSequence(0, 1, false);
+
+    attempt = yield miner.createBlock();
+
+    attempt.addTX(redeemer.toTX());
+
+    block = yield attempt.mineAsync();
+
+    yield chain.add(block);
+  }));
+
+  it('should fail csv with bad sequence', cob(function* () {
+    var csv = (yield chain.db.getBlock(chain.height)).txs[1];
+    var block, attempt, redeemer, err;
+
+    redeemer = bcoin.mtx();
+
+    redeemer.addOutput({
+      script: [
+        bcoin.script.array(new BN(1)),
+        constants.opcodes.OP_CHECKSEQUENCEVERIFY
+      ],
+      value: 10 * 1e8
+    });
+
+    redeemer.addInput(csv, 0);
+    redeemer.setSequence(0, 1, false);
+
+    attempt = yield miner.createBlock();
+
+    attempt.addTX(redeemer.toTX());
+
+    block = yield attempt.mineAsync();
+
+    try {
+      yield chain.add(block);
+    } catch (e) {
+      err = e;
+    }
+
+    assert(err);
+    assert(err.reason, 'mandatory-script-verify-flag-failed');
+  }));
+
+  it('should mine a block', cob(function* () {
+    var block = yield miner.mineBlock();
+    assert(block);
+    yield chain.add(block);
+  }));
+
+  it('should fail csv lock checks', cob(function* () {
+    var tx = (yield chain.db.getBlock(chain.height)).txs[0];
+    var block = yield mineCSV(tx);
+    var csv, attempt, redeemer, err;
+
+    yield chain.add(block);
+
+    csv = block.txs[1];
+
+    redeemer = bcoin.mtx();
+
+    redeemer.addOutput({
+      script: [
+        bcoin.script.array(new BN(2)),
+        constants.opcodes.OP_CHECKSEQUENCEVERIFY
+      ],
+      value: 10 * 1e8
+    });
+
+    redeemer.addInput(csv, 0);
+    redeemer.setSequence(0, 2, false);
+
+    attempt = yield miner.createBlock();
+
+    attempt.addTX(redeemer.toTX());
+
+    block = yield attempt.mineAsync();
+
+    try {
+      yield chain.add(block);
+    } catch (e) {
+      err = e;
+    }
+
+    assert(err);
+    assert.equal(err.reason, 'bad-txns-nonfinal');
+  }));
+
+  it('should rescan for transactions', cob(function* () {
+    yield walletdb.rescan(0);
+    assert.equal(wallet.state.confirmed, 1289250000000);
+  }));
+
+  it('should cleanup', cob(function* () {
     constants.tx.COINBASE_MATURITY = 100;
-    node.close(cb);
-  });
+    yield node.close();
+  }));
 });

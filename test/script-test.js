@@ -4,12 +4,12 @@ var bcoin = require('../').set('main');
 var assert = require('assert');
 var Script = bcoin.script;
 var Stack = bcoin.stack;
-var utils = bcoin.utils;
+var util = bcoin.util;
 var crypto = require('../lib/crypto/crypto');
 var constants = bcoin.constants;
 var opcodes = bcoin.constants.opcodes;
 var scripts = require('./data/script_tests');
-var bn = require('bn.js');
+var BN = require('bn.js');
 
 describe('Script', function() {
   it('should encode/decode script', function() {
@@ -67,7 +67,7 @@ describe('Script', function() {
     inputScript.execute(stack);
     var res = prevOutScript.execute(stack);
     assert(res);
-    assert.deepEqual(stack.slice(), [[1], [3], [5]]);
+    assert.deepEqual(stack.items, [[1], [3], [5]]);
 
     var inputScript = new Script([opcodes.OP_1, opcodes.OP_2]);
     var prevOutScript = new Script([
@@ -84,7 +84,7 @@ describe('Script', function() {
     inputScript.execute(stack);
     var res = prevOutScript.execute(stack);
     assert(res);
-    assert.deepEqual(stack.slice(), [[1], [4], [5]]);
+    assert.deepEqual(stack.items, [[1], [4], [5]]);
 
     var inputScript = new Script([opcodes.OP_1, opcodes.OP_2]);
     var prevOutScript = new Script([
@@ -99,7 +99,7 @@ describe('Script', function() {
     inputScript.execute(stack);
     var res = prevOutScript.execute(stack);
     assert(res);
-    assert.deepEqual(stack.slice(), [[1], [3], [5]]);
+    assert.deepEqual(stack.items, [[1], [3], [5]]);
 
     var inputScript = new Script([opcodes.OP_1, opcodes.OP_2]);
     var prevOutScript = new Script([
@@ -114,7 +114,7 @@ describe('Script', function() {
     inputScript.execute(stack);
     var res = prevOutScript.execute(stack);
     assert(res);
-    assert.deepEqual(stack.slice(), [[1], [5]]);
+    assert.deepEqual(stack.items, [[1], [5]]);
 
     var inputScript = new Script([opcodes.OP_1, opcodes.OP_2]);
     var prevOutScript = new Script([
@@ -129,7 +129,7 @@ describe('Script', function() {
     inputScript.execute(stack);
     var res = prevOutScript.execute(stack);
     assert(res);
-    assert.deepEqual(stack.slice(), [[1], [3], [5]]);
+    assert.deepEqual(stack.items, [[1], [3], [5]]);
   });
 
   function success(res, stack) {
@@ -149,9 +149,9 @@ describe('Script', function() {
     var s = bcoin.script.fromString(
       'OP_1 OP_DUP OP_PUSHDATA1'
     );
-    assert(utils.equal(s.raw, new Buffer('51764c', 'hex')));
+    assert(util.equal(s.raw, new Buffer('51764c', 'hex')));
     delete s.raw;
-    assert(utils.equal(s.encode(), new Buffer('51764c', 'hex')));
+    assert(util.equal(s.encode(), new Buffer('51764c', 'hex')));
     try {
       s.execute(stack);
     } catch (e) {
@@ -162,9 +162,9 @@ describe('Script', function() {
     var s = bcoin.script.fromString(
       'OP_1 OP_DUP OP_PUSHDATA2 0x01'
     );
-    assert(utils.equal(s.raw, new Buffer('51764d01', 'hex')));
+    assert(util.equal(s.raw, new Buffer('51764d01', 'hex')));
     delete s.raw;
-    assert(utils.equal(s.encode(), new Buffer('51764d01', 'hex')));
+    assert(util.equal(s.encode(), new Buffer('51764d01', 'hex')));
     err = null;
     try {
       s.execute(stack);
@@ -176,9 +176,9 @@ describe('Script', function() {
     var s = bcoin.script.fromString(
       'OP_1 OP_DUP OP_PUSHDATA4 0x0001'
     );
-    assert(utils.equal(s.raw, new Buffer('51764e0001', 'hex')));
+    assert(util.equal(s.raw, new Buffer('51764e0001', 'hex')));
     delete s.raw;
-    assert(utils.equal(s.encode(), new Buffer('51764e0001', 'hex')));
+    assert(util.equal(s.encode(), new Buffer('51764e0001', 'hex')));
     err = null;
     try {
       s.execute(stack);
@@ -190,9 +190,9 @@ describe('Script', function() {
     var s = bcoin.script.fromString(
       'OP_1 OP_DUP OP_PUSHDATA1 0x02 0x01'
     );
-    assert(utils.equal(s.raw, new Buffer('51764c0201', 'hex')));
+    assert(util.equal(s.raw, new Buffer('51764c0201', 'hex')));
     delete s.raw;
-    assert(utils.equal(s.encode(), new Buffer('51764c0201', 'hex')));
+    assert(util.equal(s.encode(), new Buffer('51764c0201', 'hex')));
     err = null;
     try {
       s.execute(stack);
@@ -204,9 +204,9 @@ describe('Script', function() {
     var s = bcoin.script.fromString(
       'OP_1 OP_DUP OP_PUSHDATA2 0x0200 0x01'
     );
-    assert(utils.equal(s.raw, new Buffer('51764d020001', 'hex')));
+    assert(util.equal(s.raw, new Buffer('51764d020001', 'hex')));
     delete s.raw;
-    assert(utils.equal(s.encode(), new Buffer('51764d020001', 'hex')));
+    assert(util.equal(s.encode(), new Buffer('51764d020001', 'hex')));
     err = null;
     try {
       s.execute(stack);
@@ -348,6 +348,8 @@ describe('Script', function() {
           tx._witnessSize = -1;
           tx._lastWitnessSize = 0;
           tx._hash = null;
+          tx._hhash = null;
+          tx._whash = null;
           tx._inputValue = -1;
           tx._outputValue = -1;
           tx._hashPrevouts = null;
@@ -380,7 +382,7 @@ describe('Script', function() {
           assert.equal(err.code, expected);
           return;
         }
-        utils.assert.ifError(err);
+        assert.ifError(err);
         assert(res);
       });
     });

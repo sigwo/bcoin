@@ -1,9 +1,11 @@
 'use strict';
 
-var bn = require('bn.js');
+var BN = require('bn.js');
 var bcoin = require('../').set('main');
-var utils = bcoin.utils;
+var util = bcoin.util;
+var btcutils = require('../lib/btc/utils');
 var crypto = require('../lib/crypto/crypto');
+var Bloom = require('../lib/utils/bloom');
 var constants = bcoin.constants;
 var network = bcoin.networks;
 var assert = require('assert');
@@ -106,7 +108,7 @@ describe('Block', function() {
     var reward;
 
     for (;;) {
-      reward = bcoin.block.reward(height);
+      reward = btcutils.getReward(height, 210000);
       assert(reward <= constants.COIN * 50);
       total += reward;
       if (reward === 0)
@@ -124,11 +126,11 @@ describe('Block', function() {
       '8cc72c02a958de5a8b35a23bb7e3bced8bf840cc0a4e1c820000000000000000');
     assert.equal(block.rhash,
       '0000000000000000821c4e0acc40f88bedbce3b73ba2358b5ade58a9022cc78c');
-    assert.equal(block.merkleRoot, block.getMerkleRoot('hex'));
+    assert.equal(block.merkleRoot, block.createMerkleRoot('hex'));
   });
 
   it('should create a merkle block', function() {
-    var filter = bcoin.bloom.fromRate(1000, 0.01, constants.filterFlags.NONE);
+    var filter = Bloom.fromRate(1000, 0.01, constants.filterFlags.NONE);
     var item1 = '8e7445bbb8abd4b3174d80fa4c409fea6b94d96b';
     var item2 = '047b00000078da0dca3b0ec2300c00d0ab4466ed10'
       + 'e763272c6c9ca052972c69e3884a9022084215e2eef'
@@ -164,7 +166,7 @@ describe('Block', function() {
     block2.merkleRoot = constants.NULL_HASH;
     delete block2._valid;
     var ret = {};
-    assert(!block2.verify(ret));
+    assert(!block2.verify(0, ret));
     assert.equal(ret.reason, 'bad-txnmrklroot');
     delete block2._valid;
     delete block2._hash;
@@ -177,7 +179,7 @@ describe('Block', function() {
     mblock2.hash();
     mblock2.merkleRoot = constants.NULL_HASH;
     var ret = {};
-    assert(!mblock2.verify(ret));
+    assert(!mblock2.verify(0, ret));
     assert.equal(ret.reason, 'bad-txnmrklroot');
     delete mblock2._validPartial;
     delete mblock2._valid;
@@ -191,7 +193,7 @@ describe('Block', function() {
     block2.hash();
     block2.bits = 403014710;
     var ret = {};
-    assert(!block2.verify(ret));
+    assert(!block2.verify(0, ret));
     assert.equal(ret.reason, 'high-hash');
     delete block2._valid;
     delete block2._hash;
@@ -203,7 +205,7 @@ describe('Block', function() {
     var block2 = new bcoin.block(block);
     block2.txs.push(block2.txs[block2.txs.length - 1]);
     var ret = {};
-    assert(!block2.verify(ret));
+    assert(!block2.verify(0, ret));
     assert.equal(ret.reason, 'bad-txns-duplicate');
   });
 
@@ -215,7 +217,7 @@ describe('Block', function() {
   it('should handle compact block', function(cb) {
     var cblock = bip152.CompactBlock.fromRaw(cmpct[0], 'hex');
     var block = bcoin.block.fromRaw(cmpct[1], 'hex');
-    var cblock2 = bip152.CompactBlock.fromBlock(block, cblock.keyNonce);
+    var cblock2 = bip152.CompactBlock.fromBlock(block, false, cblock.keyNonce);
     var map = {};
 
     assert.equal(cblock.toRaw().toString('hex'), cmpct[0]);
@@ -237,7 +239,7 @@ describe('Block', function() {
 
     assert.equal(cblock.sid(block.txs[1].hash()), 125673511480291);
 
-    var result = cblock.fillMempool(fakeMempool);
+    var result = cblock.fillMempool(false, fakeMempool);
     assert(result);
     for (var i = 0; i < cblock.available.length; i++)
       assert(cblock.available[i]);
@@ -248,7 +250,7 @@ describe('Block', function() {
   it('should handle half-full compact block', function(cb) {
     var cblock = bip152.CompactBlock.fromRaw(cmpct[0], 'hex');
     var block = bcoin.block.fromRaw(cmpct[1], 'hex');
-    var cblock2 = bip152.CompactBlock.fromBlock(block, cblock.keyNonce);
+    var cblock2 = bip152.CompactBlock.fromBlock(block, false, cblock.keyNonce);
     var map = {};
 
     assert.equal(cblock.toRaw().toString('hex'), cmpct[0]);
@@ -273,7 +275,7 @@ describe('Block', function() {
 
     assert.equal(cblock.sid(block.txs[1].hash()), 125673511480291);
 
-    var result = cblock.fillMempool(fakeMempool);
+    var result = cblock.fillMempool(false, fakeMempool);
     assert(!result);
 
     var req = cblock.toRequest();
@@ -301,7 +303,7 @@ describe('Block', function() {
   it('should handle compact block', function(cb) {
     var cblock = bip152.CompactBlock.fromRaw(cmpct2, 'hex');
     var block = bcoin.block.fromRaw(cmpct2block);
-    var cblock2 = bip152.CompactBlock.fromBlock(block, cblock.keyNonce);
+    var cblock2 = bip152.CompactBlock.fromBlock(block, false, cblock.keyNonce);
     var map = {};
 
     assert.equal(cblock.toRaw().toString('hex'), cmpct2);
@@ -323,7 +325,7 @@ describe('Block', function() {
 
     //assert.equal(cblock.sid(block.txs[1].hash()), 125673511480291);
 
-    var result = cblock.fillMempool(fakeMempool);
+    var result = cblock.fillMempool(false, fakeMempool);
     assert(result);
     for (var i = 0; i < cblock.available.length; i++)
       assert(cblock.available[i]);
@@ -334,7 +336,7 @@ describe('Block', function() {
   it('should handle half-full compact block', function(cb) {
     var cblock = bip152.CompactBlock.fromRaw(cmpct2, 'hex');
     var block = bcoin.block.fromRaw(cmpct2block);
-    var cblock2 = bip152.CompactBlock.fromBlock(block, cblock.keyNonce);
+    var cblock2 = bip152.CompactBlock.fromBlock(block, false, cblock.keyNonce);
     var map = {};
 
     assert.equal(cblock.toRaw().toString('hex'), cmpct2);
@@ -359,7 +361,7 @@ describe('Block', function() {
 
     //assert.equal(cblock.sid(block.txs[1].hash()), 125673511480291);
 
-    var result = cblock.fillMempool(fakeMempool);
+    var result = cblock.fillMempool(false, fakeMempool);
     assert(!result);
 
     var req = cblock.toRequest();
